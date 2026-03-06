@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Google Sans', Arial, sans-serif;
+      font-size: 13px;
+      color: #202124;
+      background: #f8f9fa;
+      padding: 16px;
+    }
+
+    h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1a73e8;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: #5f6368;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 5px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #dadce0;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus {
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 2px rgba(26,115,232,0.15);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+      width: 100%;
+      margin-top: 8px;
+    }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .btn-primary { background: #1a73e8; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #1557b0; }
+
+    .btn-export { background: #34a853; color: #fff; }
+    .btn-export:hover:not(:disabled) { background: #1e8e3e; }
+
+    .status {
+      margin-top: 12px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.5;
+      display: none;
+    }
+    .status.info  { background: #e8f0fe; color: #1a73e8; display: block; }
+    .status.error { background: #fce8e6; color: #c5221f; display: block; }
+    .status.ok    { background: #e6f4ea; color: #137333; display: block; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #e0e0e0;
+      margin: 14px 0;
+    }
+
+    .count-badge {
+      display: inline-block;
+      background: #1a73e8;
+      color: #fff;
+      border-radius: 10px;
+      padding: 1px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 5px;
+    }
+
+    .result-info {
+      font-size: 12px;
+      color: #3c4043;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>🔍 RPVS – Vyhľadávanie</h2>
+
+  <label for="icoInput">IČO partnera</label>
+  <input type="text" id="icoInput" placeholder="napr. 12345678" maxlength="20"
+         onkeydown="if(event.key==='Enter') doSearch()">
+
+  <button class="btn btn-primary" id="btnSearch" onclick="doSearch()" style="margin-top:10px;">
+    Vyhľadať
+  </button>
+
+  <div id="status" class="status"></div>
+
+  <div id="resultsArea" style="display:none;">
+    <hr class="divider">
+    <div class="result-info">
+      Nájdených záznamov: <span id="countBadge" class="count-badge">0</span>
+    </div>
+    <div class="result-info" style="color:#137333;">
+      ✅ Výsledky boli zapísané do aktívneho listu.
+    </div>
+    <button class="btn btn-export" id="btnExport" onclick="doExport()">
+      ⬇ Stiahnuť CSV
+    </button>
+  </div>
+
+<script>
+  var lastRows = [];
+  var lastIco  = '';
+
+  function setStatus(msg, type) {
+    var el = document.getElementById('status');
+    el.className = 'status ' + type;
+    el.innerHTML = msg;
+  }
+
+  function clearStatus() {
+    var el = document.getElementById('status');
+    el.className = 'status';
+    el.innerHTML = '';
+  }
+
+  // ── Vyhľadávanie ──────────────────────────────────────────
+  function doSearch() {
+    var ico = document.getElementById('icoInput').value.trim();
+    if (!ico) { setStatus('Zadajte IČO.', 'error'); return; }
+
+    clearStatus();
+    document.getElementById('resultsArea').style.display = 'none';
+    lastRows = [];
+    lastIco  = ico;
+
+    var btn = document.getElementById('btnSearch');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Hľadám…';
+    setStatus('Prebieha vyhľadávanie…', 'info');
+
+    google.script.run
+      .withSuccessHandler(onSearchSuccess)
+      .withFailureHandler(onError)
+      .searchByIco(ico);
+  }
+
+  function onSearchSuccess(rows) {
+    var btn = document.getElementById('btnSearch');
+    btn.disabled = false;
+    btn.innerHTML = 'Vyhľadať';
+
+    if (!rows || rows.length === 0) { setStatus('Nenájdené.', 'error'); return; }
+    if (rows.length === 1 && rows[0].length === 1) { setStatus(rows[0][0], 'error'); return; }
+
+    lastRows = rows;
+    var count = rows.length - 1;
+    document.getElementById('countBadge').textContent = count;
+
+    // Zápis do sheetu
+    google.script.run
+      .withSuccessHandler(function() {
+        clearStatus();
+        document.getElementById('resultsArea').style.display = 'block';
+      })
+      .withFailureHandler(onError)
+      .writeResultsToSheet(rows);
+  }
+
+  // ── Export / Download CSV ─────────────────────────────────
+  function doExport() {
+    if (!lastRows || lastRows.length === 0) return;
+
+    var btn = document.getElementById('btnExport');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Pripravujem…';
+
+    google.script.run
+      .withSuccessHandler(onExportSuccess)
+      .withFailureHandler(onError)
+      .exportToCsv(lastIco, lastRows);
+  }
+
+  function onExportSuccess(result) {
+    var btn = document.getElementById('btnExport');
+    btn.disabled = false;
+    btn.innerHTML = '⬇ Stiahnuť CSV';
+
+    if (result.error) { setStatus(result.error, 'error'); return; }
+
+    // Base64 → Blob → priamy download
+    try {
+      var binary = atob(result.base64);
+      var bytes  = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) { bytes[i] = binary.charCodeAt(i); }
+      var blob = new Blob([bytes], { type: 'text/csv;charset=utf-8;' });
+
+      var url  = URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      link.href     = url;
+      link.download = result.fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(function() { URL.revokeObjectURL(url); }, 2000);
+
+      setStatus('✅ Stiahnuté: ' + escHtml(result.fileName), 'ok');
+    } catch(e) {
+      setStatus('Chyba pri sťahovaní: ' + e.message, 'error');
+    }
+  }
+
+  // ── Chyba ─────────────────────────────────────────────────
+  function onError(err) {
+    document.getElementById('btnSearch').disabled = false;
+    document.getElementById('btnSearch').innerHTML = 'Vyhľadať';
+    document.getElementById('btnExport').disabled = false;
+    document.getElementById('btnExport').innerHTML = '⬇ Stiahnuť CSV';
+    setStatus('Chyba: ' + err.message, 'error');
+  }
+
+  function escHtml(str) {
+    if (!str) return '';
+    return str.toString()
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>
